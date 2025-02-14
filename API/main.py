@@ -7,5 +7,4 @@ app = FastAPI()
 @app.post("/predict/")
 async def pred(pred_inputs:pred_inputs):
     preds = predict(pred_inputs.dict())
-    return preds
-git 
+    return preds 

@@ -14,6 +14,8 @@ import os
 import statsmodels.api as sm
 from statsmodels.formula.api import ols 
 
+import joblib
+
 def ipfGLCoefficient(bwt:float,is_men:bool)->float:
     if is_men:
         A = 1236.25115
@@ -611,7 +613,7 @@ def get_quantile_coverage(real,upper_pred,lower_pred,upper_error,lower_error,upp
     return np.mean( (real<=upper_pred+upper_error*upper_k) & (real>=lower_pred-lower_error*lower_k) )*100
 
 def doule_train_pred(train,test,x_cols,y_col,
-                     static_prams:dict,study_path1,study_path2,
+                     static_prams:dict,study_path1,study_path2,save_model_path1,save_model_path2,
                      name,is_lgbm=True,categorical_feature = [0,1,2,3,4],quantile_alpha=0):
     
     study1:optuna.study = load_study(study_path1)
@@ -625,19 +627,27 @@ def doule_train_pred(train,test,x_cols,y_col,
     if is_lgbm:     
         model1 = LGBMRegressor(**mergeParams(static_prams,study1.best_params))
         model1.fit(X_train,y_train,categorical_feature=categorical_feature)
+        joblib.dump(model1,save_model_path1)
+
         X_train['last_pred'] = model1.predict(X_train)
-        X_test['last_pred'] = model1.predict(X_test)
+        X_test['last_pred'] = model1.predict(X_test)   
 
         model2 = LGBMRegressor(**mergeParams(static_prams,study2.best_params))
         model2.fit(X_train[x_cols+['last_pred']],y_train,categorical_feature=categorical_feature)
+
+        joblib.dump(model2,save_model_path2)
     else:
         model1 = XGBRegressor(**mergeParams(static_prams,study1.best_params))
         model1.fit(X_train,y_train)
+        joblib.dump(model1,save_model_path1)
+
         X_train['last_pred'] = model1.predict(X_train)
         X_test['last_pred'] = model1.predict(X_test)
         
+
         model2 = XGBRegressor(**mergeParams(static_prams,study2.best_params))
         model2.fit(X_train[x_cols+['last_pred']],y_train)
+        joblib.dump(model2,save_model_path2)
     
     train_pred = model2.predict(X_train[x_cols+['last_pred']])
     test_pred = model2.predict(X_test[x_cols+['last_pred']])
