@@ -661,9 +661,9 @@ def doule_train_pred(train,test,x_cols,y_col,
                                 "model":[name,name],
                                 "r2_score":[r2_score(y_train, train_pred),r2_score(y_test, test_pred)],
                                 "mae":[train_mae,test_mae],
-                                "1倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mae),get_coverage(y_test,test_pred,test_mae)],
-                                "2倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mae,k=2),get_coverage(y_test,test_pred,test_mae,k=2)],
-                                "2.5倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mae,k=2.5),get_coverage(y_test,test_pred,test_mae,k=2.5)],
+                                "1倍誤差準確率":[get_coverage(y_train,train_pred,train_mae),get_coverage(y_test,test_pred,test_mae)],
+                                "2倍誤差準確率":[get_coverage(y_train,train_pred,train_mae,k=2),get_coverage(y_test,test_pred,test_mae,k=2)],
+                                "2.5倍誤差準確率":[get_coverage(y_train,train_pred,train_mae,k=2.5),get_coverage(y_test,test_pred,test_mae,k=2.5)],
                                 },index=['train','test'])
     else:
         
@@ -674,9 +674,9 @@ def doule_train_pred(train,test,x_cols,y_col,
                         "model":[name,name],
                         "r2_score":[r2_score(y_train, train_pred),r2_score(y_test, test_pred)],
                         "pinball_loss":[train_mp,test_pb],
-                        "1倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mp,k=1),get_coverage(y_test,test_pred,test_pb,k=1)],
-                        "2倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mp,k=2),get_coverage(y_test,test_pred,test_pb,k=2)],
-                        "2.5倍誤差覆蓋率":[get_coverage(y_train,train_pred,train_mp,k=2.5),get_coverage(y_test,test_pred,test_pb,k=2.5)]
+                        "1倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=1),get_coverage(y_test,test_pred,test_pb,k=1)],
+                        "2倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=2),get_coverage(y_test,test_pred,test_pb,k=2)],
+                        "2.5倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=2.5),get_coverage(y_test,test_pred,test_pb,k=2.5)]
                         },index=['train','test'])  
 
     return train_pred,test_pred,df

@@ -23,7 +23,7 @@ def predict(inputs:dict):
     for f in [ 'group','team', 'wc','gender','rank']:
         df[f] = df[f].astype('category')
                       
-    params = pd.read_csv('./model/coverage_90_param.csv').to_dict()
+    params = pd.read_csv('./model/accurracy_90_param.csv').to_dict()
     
     results = {}
     for name in ['lgbm','xgb','lgbm_Q05','lgbm_Q95']:
