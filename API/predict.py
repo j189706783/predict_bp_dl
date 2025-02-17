@@ -26,8 +26,8 @@ def predict(inputs:dict):
     params = pd.read_csv('./model/accuracy_90_param.csv').to_dict()
     
     results = {}
-    for name in ['lgbm','xgb','lgbm_Q05','lgbm_Q95']:
-        if 'Q' in name: 
+    for name in ['lgbm','xgb','lgbm_P05','lgbm_P95']:
+        if 'P' in name: 
             loss = params[f'{name}_loss'][0]
         else:
             loss = params[f'{name}_mae'][0]
@@ -38,9 +38,9 @@ def predict(inputs:dict):
                                             f'./model/{name}_bp_dl_1.pkl',
                                             f'./model/{name}_bp_dl_2.pkl')
         
-        if name =='lgbm_Q05':
+        if name =='lgbm_P05':
             output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=0,lower=lower)
-        elif name =='lgbm_Q95':
+        elif name =='lgbm_P95':
             output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=upper,lower=0)
         else:
             output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=upper,lower=lower)

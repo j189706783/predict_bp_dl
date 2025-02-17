@@ -49,12 +49,12 @@ def getGenderLabel(gender:str):
 def get_outlier_index(data:pd.DataFrame,feature:str,iqr_scale=1.5,return_region = False):
 
     ary = data[feature].to_numpy().ravel()
-    q25,q75 = np.quantile(ary,[0.25,0.75])
-    IQR = q75-q25
+    p25,p75 = np.quantile(ary,[0.25,0.75])
+    IQR = p75-p25
     
-    idx = np.where(((ary<(q25-IQR*iqr_scale)) | (ary>(q75+IQR*iqr_scale))))[0]
+    idx = np.where(((ary<(p25-IQR*iqr_scale)) | (ary>(p75+IQR*iqr_scale))))[0]
     if return_region:
-        return data.iloc[idx].index.to_list(),[q25-IQR*iqr_scale,q75+IQR*iqr_scale]
+        return data.iloc[idx].index.to_list(),[p25-IQR*iqr_scale,p75+IQR*iqr_scale]
     else:
         return data.iloc[idx].index.to_list()
     
@@ -89,10 +89,10 @@ def neg_root_mean_squared_error(y_true,y_pred):
 def dropOutlierAfIdx(data:pd.DataFrame,feature:str,iqr_scale=1.5):
 
     ary = data[feature].to_numpy().ravel()
-    q25,q75 = np.quantile(ary,[0.25,0.75])
-    IQR = q75-q25
+    p25,p75 = np.quantile(ary,[0.25,0.75])
+    IQR = p75-p25
     
-    idx = np.where(((ary>=(q25-IQR*iqr_scale)) & (ary<=(q75+IQR*iqr_scale))))[0]
+    idx = np.where(((ary>=(p25-IQR*iqr_scale)) & (ary<=(p75+IQR*iqr_scale))))[0]
 
     return idx
 
@@ -210,13 +210,13 @@ def pinball_loss(alpha,y_test,y_pred):
         
     return np.sum([_pinball_loss(alpha,y_test[i],y_pred[i]) for i in range(len(y_test))])
 
-def quantile_mse_q95(y_true,y_pred):
+def quantile_mse_p95(y_true,y_pred):
     grad = -2*0.95*y_true/len(y_true)+y_pred/len(y_pred)
     hess = (1/len(y_true))*np.ones(len(y_true))
     
     return grad,hess
 
-def quantile_mse_q05(y_true,y_pred):
+def quantile_mse_p05(y_true,y_pred):
     grad = -2*0.05*y_true/len(y_true)+y_pred/len(y_pred)
     hess = (1/len(y_true))*np.ones(len(y_true))
 
@@ -743,12 +743,12 @@ def resultPlot( train_true,train_pred,
     _, axes = plt.subplots(nrows=2, ncols=3,figsize=figsize)
 
     #train
-    df = pd.DataFrame({'test':train_true,'pred':train_pred,'Q05':lower_train_pred,'Q95':upper_train_pred}).sort_values('test')
+    df = pd.DataFrame({'test':train_true,'pred':train_pred,'P05':lower_train_pred,'P95':upper_train_pred}).sort_values('test')
     df.index = df['test']
     sns.lineplot(df['test'],color='red',ax=axes[0,0],label='real') 
     sns.scatterplot(df['pred'],alpha=0.5,ax=axes[0,0],label='pred')
-    sns.scatterplot(df['Q95'], color='green',alpha=0.3,ax=axes[0,0],label='Q95') 
-    sns.scatterplot(df['Q05'], color='orange',alpha=0.3,ax=axes[0,0],label='Q05') 
+    sns.scatterplot(df['P95'], color='green',alpha=0.3,ax=axes[0,0],label='P95') 
+    sns.scatterplot(df['P05'], color='orange',alpha=0.3,ax=axes[0,0],label='P05') 
     
     
     axes[0,0].set_xlabel(x_lbl_11)
@@ -767,12 +767,12 @@ def resultPlot( train_true,train_pred,
     axes[0,2].title.set_text("Train's residual Q-Q plot")
 
     #test
-    df = pd.DataFrame({'test':test_true,'pred':test_pred,'Q05':lower_test_pred,'Q95':upper_test_pred}).sort_values('test')
+    df = pd.DataFrame({'test':test_true,'pred':test_pred,'P05':lower_test_pred,'P95':upper_test_pred}).sort_values('test')
     df.index = df['test']
     sns.lineplot(df['test'],color='red',ax=axes[1,0],label='real') 
     sns.scatterplot(df['pred'],alpha=0.8,ax=axes[1,0],label='pred')
-    sns.scatterplot(df['Q95'], color='green',alpha=0.3,ax=axes[1,0],label='Q95')
-    sns.scatterplot(df['Q05'], color='orange',alpha=0.3,ax=axes[1,0],label='Q05')
+    sns.scatterplot(df['P95'], color='green',alpha=0.3,ax=axes[1,0],label='P95')
+    sns.scatterplot(df['P05'], color='orange',alpha=0.3,ax=axes[1,0],label='P05')
     
     
     axes[1,0].set_xlabel(x_lbl_21)
@@ -813,9 +813,9 @@ def SvrHyperTuningUsageOB(X,y,pbounds,score_function,ob_random_state,n_iter,init
 
 def get_predict_odd_index(residual,iqr_scale=1.5):
 
-    q25,q75 = np.quantile(residual,[0.25,0.75])
-    IQR = q75-q25
-    idx = np.where(((residual<(q25-IQR*iqr_scale)) | (residual>(q75+IQR*iqr_scale))))[0]
+    p25,p75 = np.quantile(residual,[0.25,0.75])
+    IQR = p75-p25
+    idx = np.where(((residual<(p25-IQR*iqr_scale)) | (residual>(p75+IQR*iqr_scale))))[0]
 
     return {'odd':idx}
 
