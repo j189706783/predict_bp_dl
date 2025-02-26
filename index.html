@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>健力項目總和預測測試</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .form-group { display: flex; align-items: center; margin-bottom: 10px; }
+        .form-group label { margin-right: 10px; white-space: nowrap; }
+        .form-group .value { font-weight: bold; }
+        .form-container { display: flex; flex-wrap: wrap; gap: 20px; }
+        button { margin-top: 15px; padding: 10px; background-color: #007BFF; color: white; border: none; cursor: pointer; }
+        button:hover { background-color: #0056b3; }
+        .response-container { margin-top: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        th { background-color: #f4f4f4; }
+    </style>
+</head>
+<body>
+
+    <h2>測試資料</h2>
+    
+    <form id="apiForm">
+        <table>
+            <thead>
+                <tr>
+                    <th>選擇</th>
+                    <th>實際總重(答案)</th>
+                    <th>YEAR</th>
+                    <th>TEAM</th>
+                    <th>WC</th>
+                    <th>GENDER</th>
+                    <th>OLD</th>
+                    <th>BWT</th>
+                    <th>SQ</th>
+                    <th>IPF_GL_C</th>
+                    <th>RANK</th>
+                </tr>
+            </thead>
+            <tbody id="dataBody">
+                <tr>
+                    <td><input type="radio" name="selected" value="0"></td>
+                    <td>315</td>
+                    <td>0</td>
+                    <td>5</td>
+                    <td>1</td>
+                    <td>0</td>
+                    <td>57</td>
+                    <td>51.6</td>
+                    <td>220.0</td>
+                    <td>0.2047</td>
+                    <td>11</td>
+                </tr>
+                <tr>
+                    <td><input type="radio" name="selected" value="1"></td>
+                    <td>330</td>
+                    <td>3</td>
+                    <td>32</td>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>27</td>
+                    <td>69.71</td>
+                    <td>195.0</td>
+                    <td>0.171</td>
+                    <td>6</td>
+
+                </tr>
+                <tr>
+                    <td><input type="radio" name="selected" value="2"></td>
+                    <td>640</td>
+                    <td>3</td>
+                    <td>23</td>
+                    <td>4</td>
+                    <td>0</td>
+                    <td>38</td>
+                    <td>139.35</td>
+                    <td>395.0</td>
+                    <td>0.1376</td>
+                    <td>6</td>
+                </tr>
+                <tr>
+                    <td><input type="radio" name="selected" value="3"></td>
+                    <td>592,5</td>
+                    <td>4</td>
+                    <td>2</td>
+                    <td>3</td>
+                    <td>1</td>
+                    <td>28</td>
+                    <td>103.15</td>
+                    <td>382.5</td>
+                    <td>0.1467</td>
+                    <td>5</td>
+                </tr>
+            </tbody>
+        </table>
+
+        <button type="button" onclick="submitForm()">送出</button>
+    </form>
+
+    <h3>預測結果：</h3>
+    <table id="resultTable" style="display:none;">
+        <thead>
+            <tr>
+                <th>模型</th>
+                <th>預測總重</th>
+                <th>P95</th>
+                <th>P05</th>
+            </tr>
+        </thead>
+        <tbody id="resultBody"></tbody>
+    </table>
+    <script>
+        async function submitForm() {
+            const selected = document.querySelector('input[name="selected"]:checked');
+            if (!selected) {
+                alert("請選擇一筆資料！");
+                return;
+            }
+            const index = selected.value;
+            const rows = document.getElementById("dataBody").rows;
+            const cells = rows[index].cells;
+            const data = {
+                year: parseInt(cells[2].innerText),
+                team: parseInt(cells[3].innerText),
+                wc: parseInt(cells[4].innerText),
+                gender: parseInt(cells[5].innerText),
+                old: parseInt(cells[6].innerText),
+                bwt: parseFloat(cells[7].innerText),
+                sq: parseFloat(cells[8].innerText),
+                ipf_gl_c: parseFloat(cells[9].innerText),
+                rank: parseInt(cells[10].innerText)
+            };
+            try {
+                const response = await fetch('http://127.0.0.1:8080/predict/', {
+                    method: 'POST',
+                    mode: 'cors',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP 錯誤: ${response.status}`);
+                }
+                const result = await response.json();
+                document.getElementById('resultTable').style.display = 'table';
+                const resultBody = document.getElementById('resultBody');
+                resultBody.innerHTML = '';
+                Object.values(result).forEach(model => {
+                    resultBody.innerHTML += `<tr><td>${model.name}</td><td>${model.pred}</td><td>${model.upper}</td><td>${model.lower}</td></tr>`;
+                });
+            } catch (error) {
+                alert(`請求失敗: ${error.message}`);
+            }
+        }
+    </script>
+</body>
+</html>

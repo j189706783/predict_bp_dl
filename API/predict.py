@@ -3,48 +3,42 @@ import pandas as pd
 import json
 from model import pred_output
 
-def _predict(inputs:pd.DataFrame,deviation,scale,path1,path2):
+def _predict(inputs:pd.DataFrame,path1,path2,team_stay_label):
 
     model1 = joblib.load(path1) 
     model2 = joblib.load(path2)
 
-    pred1 = model1.predict(inputs[['group', 'team', 'wc', 'gender', 'rank', 'old', 'bwt', 'sq', 'ipf_gl_c','year']])
-    inputs['last_pred'] = pred1
-    pred2 = model2.predict(inputs) 
+    inputs.loc[inputs['team'].isin(team_stay_label)==False,['rank']]=99
+    inputs.loc[inputs['rank']>=9,['rank']]=9
 
-    upper = pred2+deviation*scale
-    lower = pred2-deviation*scale
+    pred1 = model1.predict(inputs[['year', 'team', 'wc', 'gender', 'old', 'bwt', 'sq', 'ipf_gl_c', 'rank']])
+    pred2 = model2.predict(inputs[['year', 'team', 'wc', 'gender', 'old', 'bwt', 'sq', 'ipf_gl_c', 'rank']]) 
+    pred3 = (pred1+pred2)/2
 
-    return pred1,pred2,upper,lower
+    return pred1,pred2,pred3
 
 def predict(inputs:dict):
 
     df = pd.DataFrame({key:[val] for key,val in inputs.items()})
-    for f in [ 'group','team', 'wc','gender','rank']:
-        df[f] = df[f].astype('category')
                       
-    params = pd.read_csv('./model/accuracy_90_param.csv').to_dict()
+    df_90PI = pd.read_csv('./model/90PI.csv')
+    
+    pred1,pred2,pred3 = _predict(df,f'./model/lgbm_bp_dl_1.pkl',f'./model/lgbm_bp_dl_2.pkl',df_90PI['team_stay_label'][0].split(','))
+
+    model1_upper = pred1 + df_90PI['model1_upper'][0]
+    model1_lower = pred1 + df_90PI['model1_lower'][0]
+
+    model2_upper = pred2 + df_90PI['model2_upper'][0]
+    model2_lower = pred2 + df_90PI['model2_lower'][0]
+
+    mean_upper   = pred3 + df_90PI['mean_upper'][0]
+    mean_lower   = pred3 + df_90PI['mean_lower'][0]
+
+    del df,df_90PI
     
     results = {}
-    for name in ['lgbm','xgb','lgbm_P05','lgbm_P95']:
-        if 'P' in name: 
-            loss = params[f'{name}_loss'][0]
-        else:
-            loss = params[f'{name}_mae'][0]
-
-        scale = params[f'{name}_scale'][0]
-
-        pred1,pred2,upper,lower = _predict(df,loss,scale,
-                                            f'./model/{name}_bp_dl_1.pkl',
-                                            f'./model/{name}_bp_dl_2.pkl')
-        
-        if name =='lgbm_P05':
-            output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=0,lower=lower)
-        elif name =='lgbm_P95':
-            output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=upper,lower=0)
-        else:
-            output = pred_output(name=name,loss=loss,scale=scale,pred1=pred1,pred2=pred2,upper=upper,lower=lower)
-
-        results[name] = output.dict()
+    results['model1'] = pred_output(name='model1',pred=pred1,upper=model1_upper,lower=model1_lower).dict()
+    results['model2'] = pred_output(name='model2',pred=pred2,upper=model2_upper,lower=model2_lower).dict()
+    results['mean'] = pred_output(name='mean',pred=pred3,upper=mean_upper,lower=mean_lower).dict()
 
     return results

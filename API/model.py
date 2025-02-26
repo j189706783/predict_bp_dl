@@ -1,7 +1,6 @@
 from pydantic import BaseModel
 
 class pred_inputs(BaseModel):
-    group:int
     team:int
     wc:float
     gender:int
@@ -14,9 +13,6 @@ class pred_inputs(BaseModel):
 
 class pred_output(BaseModel):
     name:str
-    loss:float
-    scale:float
-    pred1:float
-    pred2:float
+    pred:float
     upper:float
     lower:float

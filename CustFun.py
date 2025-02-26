@@ -6,7 +6,7 @@ from sklearn.metrics import mean_squared_error,root_mean_squared_error,mean_abso
 import optuna
 import seaborn as sns
 import matplotlib.pyplot as plt
-from lightgbm import LGBMRegressor
+from lightgbm import LGBMRegressor,cv,Dataset
 from xgboost import XGBRegressor
 import pandas  as pd
 import pickle
@@ -246,7 +246,6 @@ def progress_callback(study, trial):
 def LGBMRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
                                     dynamic_params:dict,static_prams:dict,
                                     n_trials,
-                                    categorical_feature='auto',
                                     optimize_n_job = 1,
                                     metric = 'r2_score',
                                     is_maximize = True,
@@ -269,6 +268,7 @@ def LGBMRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
         direction = 'maximize' 
     else: 
         direction='minimize'
+    
 
     optuna.logging.set_verbosity(optuna.logging.WARNING)
     
@@ -277,28 +277,31 @@ def LGBMRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
 
         #將params轉換成符合optuna調參格式
         setParams(trial,dynamic_params,_params)
-
-        for key,val in static_prams.items(): _params[key] = val
+        
+        for key,val in static_prams.items():
+            _params[key] = val
 
         X = data[x_cols]
-        y = data[y_col].to_numpy().ravel()
+        y = data[y_col]
 
-        scores = []
-        kf = KFold(n_splits=5,shuffle=True)
-        for _, (train_index, val_index) in enumerate(kf.split(y)):
+        num_boost_round = _params.pop('n_estimators')
+        train_data = Dataset(X,y)
+        cv_results = cv(
+                _params,
+                train_data,
+                num_boost_round=num_boost_round,
+                nfold=5, 
+                stratified=False,
+                shuffle=True,
+                seed=42
+            )
+        
+        df = pd.DataFrame(cv_results)
+        if 'mean' in df.columns[0]:
+           return cv_results[df.columns[0]][-1]
+        else:
+            return cv_results[df.columns[1]][-1]
 
-            X_train = X.iloc[train_index].values
-            y_train = y[train_index]
-            X_val  = X.iloc[val_index].values
-            y_val  = y[val_index]
-
-            lgbm = LGBMRegressor(**_params)
-            lgbm.fit(X_train, y_train,eval_set=(X_val,y_val),eval_metric=lgbm.get_params()['metric'],categorical_feature=categorical_feature)
-
-            scores.append(getScore(metric,y_val,lgbm.predict(X_val))) 
-            
-        return np.mean(scores)
-    
     if study_path!='':
 
         if os.path.exists(study_path):
@@ -323,7 +326,6 @@ def LGBMRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
 def LBGMRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
                                     dynamic_params:dict,static_prams:dict,
                                     n_trials,
-                                    categorical_feature='auto',
                                     optimize_n_job = 1,
                                     metric = 'mape',
                                     is_maximize = False,
@@ -341,33 +343,33 @@ def LBGMRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
     
     static_prams:不會經過挑選，直接餵值給model\n
     '''
+
+    data = data.copy()
+
     lgbm_study = LGBMRegHyperTuningUsageOptunaOB(data,x_cols,y_col,dynamic_params,static_prams,
                                                      n_trials,optimize_n_job=optimize_n_job,
                                                      study_path=study_path1,
                                                      metric = metric,
-                                                     is_maximize = is_maximize,
-                                                     categorical_feature = categorical_feature)
-    
+                                                     is_maximize = is_maximize)
+
     params = mergeParams(lgbm_study.best_params,static_prams)
-    params.pop('early_stopping_rounds',None)
     
     #用預測值當作模型特徵模型的特徵
-    model = LGBMRegressor(**params)
+    model = LGBMRegressor(**params,shuffle=True)
     model.fit(data[x_cols],data[y_col])
+
     data['last_pred'] = model.predict(data[x_cols])
 
     _ = LGBMRegHyperTuningUsageOptunaOB(data,x_cols+['last_pred'],y_col,dynamic_params,static_prams,
                                                      n_trials,optimize_n_job=optimize_n_job,
                                                      study_path=study_path2,
                                                      metric = metric,
-                                                     is_maximize = is_maximize,
-                                                     categorical_feature = categorical_feature)
+                                                     is_maximize = is_maximize)
     
 
 def LGBMQRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
                                     dynamic_params:dict,static_prams:dict,
                                     n_trials,
-                                    categorical_feature='auto',
                                     optimize_n_job = 1,
                                     study_path = ""):
     '''
@@ -406,7 +408,7 @@ def LGBMQRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
             y_val  = y[val_index]
 
             lgbm = LGBMRegressor(**_params)
-            lgbm.fit(X_train, y_train,eval_set=(X_val,y_val),categorical_feature=categorical_feature)
+            lgbm.fit(X_train, y_train,eval_set=(X_val,y_val))
 
             y_pred = lgbm.predict(X_val)
             scores.append(mean_pinball_loss(y_val, y_pred,alpha=_params['alpha']))
@@ -439,7 +441,6 @@ def LGBMQRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
 def LBGMQRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
                                     dynamic_params:dict,static_prams:dict,
                                     n_trials,
-                                    categorical_feature='auto',
                                     optimize_n_job = 1,
                                     study_path1 = "",study_path2 = ""):
     '''
@@ -456,12 +457,12 @@ def LBGMQRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
     static_prams:不會經過挑選，直接餵值給model\n
     '''
     
+    data = data.copy()
     lgbm_study = LGBMQRegHyperTuningUsageOptunaOB(data,x_cols,y_col,
                                                         dynamic_params,
                                                         static_prams,
                                                         n_trials,optimize_n_job=optimize_n_job,
-                                                        study_path=study_path1,
-                                                        categorical_feature = categorical_feature)
+                                                        study_path=study_path1)
     
     params = mergeParams(lgbm_study.best_params,static_prams)
     params.pop('early_stopping_rounds',None)
@@ -475,8 +476,7 @@ def LBGMQRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
                                                         dynamic_params,
                                                         static_prams,
                                                         n_trials,optimize_n_job=optimize_n_job,
-                                                        study_path=study_path2,
-                                                        categorical_feature = categorical_feature)
+                                                        study_path=study_path2)
 
 
 def XGBRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
@@ -518,22 +518,11 @@ def XGBRegHyperTuningUsageOptunaOB(data:pd.DataFrame,x_cols:list,y_col:list,
         X = data[x_cols]
         y = data[y_col].to_numpy().ravel()
         
-        scores = []
-        kf = KFold(n_splits=5,shuffle=True)
-        for _, (train_index, test_index) in enumerate(kf.split(y)):
 
-            X_train = X.iloc[train_index].values
-            y_train = y[train_index]
-            X_val  = X.iloc[test_index].values
-            y_val  = y[test_index]
-
-            
-            xgb = XGBRegressor(**_params)
-            xgb.fit(X_train,y_train,verbose=False)
-
-            scores.append(getScore(metric,y_val,xgb.predict(X_val))) 
-            
-        return np.mean(scores)
+        xgb = XGBRegressor(**_params)
+        xgb.fit(X,y,verbose=False)
+         
+        return getScore(metric,y,xgb.predict(X))
 
     if study_path!='':
 
@@ -576,6 +565,7 @@ def XGBRegTrain(data:pd.DataFrame,x_cols:list,y_col:list,
     static_prams:不會經過挑選，直接餵值給model\n
     '''
     
+    data = data.copy()
     xgb_study = XGBRegHyperTuningUsageOptunaOB(data,x_cols,y_col,
                                                dynamic_params,static_prams,
                                                n_trials,optimize_n_job=optimize_n_job,
@@ -603,37 +593,25 @@ def load_study(study_path):
         study = pickle.load(f)
     return study
 
-def get_coverage(real,pred,error,k=1):
-    upper = pred+k*error
-    lower = pred-k*error
-    return np.mean( ((real<=upper) & (real>=lower)) )*100
-
-def get_quantile_coverage(real,upper_pred,lower_pred,upper_error,lower_error,upper_k=0,lower_k=0):
-
-    return np.mean( (real<=upper_pred+upper_error*upper_k) & (real>=lower_pred-lower_error*lower_k) )*100
-
-def doule_train_pred(train,test,x_cols,y_col,
+def doule_train_pred(train,x_cols,y_col,
                      static_prams:dict,study_path1,study_path2,save_model_path1,save_model_path2,
-                     name,is_lgbm=True,categorical_feature = [0,1,2,3,4],quantile_alpha=0):
+                     is_lgbm=True):
     
     study1:optuna.study = load_study(study_path1)
     study2:optuna.study = load_study(study_path2)
     
     X_train = train[x_cols].copy()
     y_train = train[y_col].to_numpy().ravel()
-    X_test = test[x_cols].copy()
-    y_test = test[y_col].to_numpy().ravel()
     
     if is_lgbm:     
         model1 = LGBMRegressor(**mergeParams(static_prams,study1.best_params))
-        model1.fit(X_train,y_train,categorical_feature=categorical_feature)
+        model1.fit(X_train,y_train)
         joblib.dump(model1,save_model_path1)
 
         X_train['last_pred'] = model1.predict(X_train)
-        X_test['last_pred'] = model1.predict(X_test)   
 
         model2 = LGBMRegressor(**mergeParams(static_prams,study2.best_params))
-        model2.fit(X_train[x_cols+['last_pred']],y_train,categorical_feature=categorical_feature)
+        model2.fit(X_train[x_cols+['last_pred']],y_train)
 
         joblib.dump(model2,save_model_path2)
     else:
@@ -642,92 +620,15 @@ def doule_train_pred(train,test,x_cols,y_col,
         joblib.dump(model1,save_model_path1)
 
         X_train['last_pred'] = model1.predict(X_train)
-        X_test['last_pred'] = model1.predict(X_test)
         
 
         model2 = XGBRegressor(**mergeParams(static_prams,study2.best_params))
         model2.fit(X_train[x_cols+['last_pred']],y_train)
         joblib.dump(model2,save_model_path2)
-    
-    train_pred = model2.predict(X_train[x_cols+['last_pred']])
-    test_pred = model2.predict(X_test[x_cols+['last_pred']])
-
-    if quantile_alpha ==0:
-        train_mae = mean_absolute_error(y_train, train_pred)
-        test_mae  = mean_absolute_error(y_test, test_pred)
 
 
-        df = pd.DataFrame(data={
-                                "model":[name,name],
-                                "r2_score":[r2_score(y_train, train_pred),r2_score(y_test, test_pred)],
-                                "mae":[train_mae,test_mae],
-                                "1倍誤差準確率":[get_coverage(y_train,train_pred,train_mae),get_coverage(y_test,test_pred,test_mae)],
-                                "2倍誤差準確率":[get_coverage(y_train,train_pred,train_mae,k=2),get_coverage(y_test,test_pred,test_mae,k=2)],
-                                "2.5倍誤差準確率":[get_coverage(y_train,train_pred,train_mae,k=2.5),get_coverage(y_test,test_pred,test_mae,k=2.5)],
-                                },index=['train','test'])
-    else:
-        
-        train_mp = mean_pinball_loss(y_train, train_pred,alpha=quantile_alpha)
-        test_pb  = mean_pinball_loss(y_test, test_pred,alpha=quantile_alpha)
+    return model1,model2
 
-        df = pd.DataFrame(data={
-                        "model":[name,name],
-                        "r2_score":[r2_score(y_train, train_pred),r2_score(y_test, test_pred)],
-                        "pinball_loss":[train_mp,test_pb],
-                        "1倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=1),get_coverage(y_test,test_pred,test_pb,k=1)],
-                        "2倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=2),get_coverage(y_test,test_pred,test_pb,k=2)],
-                        "2.5倍誤差準確率":[get_coverage(y_train,train_pred,train_mp,k=2.5),get_coverage(y_test,test_pred,test_pb,k=2.5)]
-                        },index=['train','test'])  
-
-    return train_pred,test_pred,df
-
-
-def getDescribe(scores,labels,asc=False):
-
-    dic = {}
-    for i in range(len(scores)):
-        s = scores[i]
-        if asc:
-            dic[labels[i]] = [len(s),round(np.min(s),4),list(s).index(np.min(s))+1,round(np.max(s),4),list(s).index(np.max(s))+1]
-        else:
-            dic[labels[i]] = [len(s),round(np.max(s),4),list(s).index(np.max(s))+1,round(np.min(s),4),list(s).index(np.min(s))+1]
-    df = pd.DataFrame(data=dic,index=['Exp. Rounds','Best Score','Best Occ. Round','Worst Score','Worst Occ. Round'])
-    df = df.T
-    df['Exp. Rounds'] = df['Exp. Rounds'].astype(int)
-    df['Best Occ. Round'] = df['Worst Occ. Round'].astype(int)
-    return df.sort_values('Best Score',ascending=asc)
-
-def getHyperParamScatter(study:optuna.study):
-    
-    dicParams = {}
-    dicParams['scores'] = []
-
-    #取出HyperParam和score的數值
-    for t in study.get_trials():
-        for key,val in t.params.items(): 
-
-            if key not in dicParams.keys():
-                dicParams[key] = [val]
-            else:
-                dicParams[key].append(val)
-
-        dicParams['scores'].append(t.values[0])
-    
-    #決定score顯示的尺規和範圍
-    min_scores = np.min(dicParams['scores'])
-    xtick = (np.max(dicParams['scores']) - min_scores)/5
-    lst_xticks = [min_scores-xtick] + [min_scores + xtick*i for i in range(1,5)]
-
-    #秀出HyperParam與score的分佈情況
-    df = pd.DataFrame(data=dicParams)
-    for p in dicParams.keys():
-        if p !='scores':
-            df.plot.scatter(x='scores',y=p,s=2,alpha=0.5)
-            plt.xticks(lst_xticks)
-            plt.xlim([min_scores - xtick, min_scores + xtick*4])
-            plt.xlabel('scores')
-            plt.ylabel(p)
-            plt.show()
 
 def resultPlot( train_true,train_pred,
                 test_true,test_pred,
@@ -898,3 +799,353 @@ def load_dict(path):
         dic = pickle.load(fp)
         print(f'load:{path}')
     return dic
+
+def compute_pi(df,model,x_cols,y_col,upper=0.95,lower=0.05,bootstrap_samples=1000000):
+    samples = df.sample(n=bootstrap_samples,replace=True,random_state=42)
+    preds = model.predict(samples[x_cols].to_numpy())
+    residual = (samples[y_col].to_numpy()-preds).tolist()
+    
+    pi = np.quantile(residual,[upper,lower])
+    return pi[0],pi[1]
+
+def compute_pi_by_std(df,model,x_cols,y_col,bootstrap_samples=1000000):
+    samples = df.sample(n=bootstrap_samples,replace=True)
+    preds = model.predict(samples[x_cols].to_numpy())
+    residual = (samples[y_col].to_numpy()-preds).tolist()
+    
+    return np.mean(residual)+np.std(residual)*1.96,np.mean(residual)-np.std(residual)*1.96
+
+def compute_coverage_rate(preds,trues,upper,lower):    
+    return np.mean( ((preds+lower)<=trues) & (trues<=(preds+upper)) )
+
+def compute_pi_for_baseline(df,y_col,upper=0.95,lower=0.05,bootstrap_samples=1000000):
+    
+    preds = df[y_col].mean()
+    samples = df.sample(n=bootstrap_samples,replace=True)
+    residual = (samples[y_col].to_numpy()-preds).tolist()
+    
+    pi = np.quantile(residual,[upper,lower])
+    return pi[0],pi[1]
+
+def compute_coverage_rate_for_baseline(df,y_col,upper,lower):
+    preds = df[y_col].mean()
+    return np.mean( ((preds+lower)<=df[y_col].to_numpy()) & (df[y_col].to_numpy()<=(preds+upper)) )
+
+def metrics(models:list,df_train,df_test,X_train,y_train,X_test,y_test,x_cols,y_col):
+    lst_metrics = []
+    df_metrics = pd.DataFrame(index=['mae','rmse','mape','r2_score','residual_P95','residual_P05','coverage_rate'])
+    for cols in ['train_baseline','train','test_baseline','test']:
+        if cols == 'train_baseline':
+            true = y_train
+            pred = y_train.mean()
+            pred = [pred for _ in range(len(y_train))]
+        elif cols == 'train':
+            true = y_train
+            pred = np.mean([model.predict(X_train) for model in models],axis=0)
+
+        elif cols == 'test_baseline':
+            true = y_test
+            pred = y_test.mean()
+            pred = [pred for _ in range(len(y_test))]
+        else:
+            true = y_test
+            pred = np.mean([model.predict(X_test) for model in models],axis=0)
+
+        lst_metrics = [mean_absolute_error(true,pred),root_mean_squared_error(true,pred),
+                          mean_absolute_percentage_error(true,pred),r2_score(true,pred)]
+        
+        if cols == 'train_baseline':
+            upper,lower = compute_pi_for_baseline(df_train,y_col)
+            coverage_rate = compute_coverage_rate_for_baseline(df_train,y_col,upper,lower)
+        elif cols == 'train':
+            if len(models)>1:
+                lst = [compute_pi(df_train,model,x_cols,y_col) for model in models]
+                upper = np.mean([lst[0][0],lst[1][0]])
+                lower = np.mean([lst[0][1],lst[1][1]])
+                del lst
+            else:
+                upper,lower = compute_pi(df_train,models[0],x_cols,y_col)
+                
+            coverage_rate = compute_coverage_rate(pred,true,upper,lower)
+        elif cols == 'test_baseline':
+            upper,lower = compute_pi_for_baseline(df_test,y_col)
+            coverage_rate = compute_coverage_rate_for_baseline(df_test,y_col,upper,lower)
+        else:
+            if len(models)>1:
+                lst = [compute_pi(df_test,model,x_cols,y_col) for model in models] 
+                upper = np.mean([lst[0][0],lst[1][0]])
+                lower = np.mean([lst[0][1],lst[1][1]])
+                del lst
+            else:
+                upper,lower = compute_pi(df_test,models[0],x_cols,y_col)
+
+            coverage_rate = compute_coverage_rate(pred,true,upper,lower)
+
+        lst_metrics.append(upper)
+        lst_metrics.append(lower)
+        lst_metrics.append(coverage_rate)
+
+        df_metrics[cols] = lst_metrics
+
+    df_metrics.style.format("{:.6f}")
+    return df_metrics
+
+def train(params,num_boost_round,df_train,df_test,x_cols,y_col,show_result = True,using_cv=True):
+    X_train,y_train,X_test,y_test = df_train[x_cols].to_numpy(),df_train[y_col].to_numpy(),df_test[x_cols].to_numpy(),df_test[y_col].to_numpy()
+    train_data = Dataset(X_train, label=y_train)
+
+    cv_results = cv(
+            params,
+            train_data,
+            num_boost_round=num_boost_round,
+            nfold=5, 
+            stratified=False,
+            shuffle=True,
+            seed=42
+        )
+    
+    s1 = ''
+    df = pd.DataFrame(cv_results)
+    if 'mean' in df.columns[0]:
+        s1 = df.columns[0]
+        s2 = df.columns[1]
+    else:
+        s1 = df.columns[1]
+        s2 = df.columns[0]
+    
+    df = df.sort_values(s1).iloc[:5]
+    df = df.sort_values(s2).iloc[:1]
+    rounds = df.index.tolist()[0]
+
+    if show_result:print('rounds','=>',rounds)
+
+    dic_metrics = {}
+    if using_cv:
+        if show_result:print('cv start')
+        lst = []
+        kf = KFold(n_splits=5,shuffle=True,random_state=42)
+        for _, (train_index, val_index) in enumerate(kf.split(y_train)):
+
+            X_cv_train = X_train[train_index]
+            y_cv_train = y_train[train_index]
+            X_cv_val  = X_train[val_index]
+            y_cv_val  = y_train[val_index]
+
+            lgbm = LGBMRegressor(**params,n_estimators=rounds,shuffle=True)
+            lgbm.fit(X_cv_train, y_cv_train,eval_set=(X_cv_val,y_cv_val))
+
+            df_importances = pd.DataFrame(data={'feature':x_cols,'feature_importances':lgbm.feature_importances_})
+            df_importances = df_importances.reset_index(drop=True).T
+            df_metrics = metrics([lgbm],df_train.iloc[train_index],df_train.iloc[val_index],
+                                 X_cv_train,y_cv_train,X_cv_val,y_cv_val,x_cols,y_col)
+
+            lst.append(df_metrics)
+        
+        df_metrics = pd.concat(lst)
+        lst = []
+        for m in ['mae','rmse','mape','r2_score','residual_P95','residual_P05','coverage_rate']:
+            lst.append(df_metrics.loc[[m]].agg(['var','mean']))
+            lst[-1]['metrics'] = m 
+        df_metrics = pd.concat(lst) 
+        
+        dic_metrics['cv_mean'] = df_metrics.loc[['mean']]
+        dic_metrics['cv_mean'] = dic_metrics['cv_mean'].reset_index(drop=True)[['metrics','train_baseline','train','test_baseline','test']].rename(columns={'test':'val'})
+        
+        dic_metrics['cv_var'] = df_metrics.loc[['var']]
+        dic_metrics['cv_var'] = dic_metrics['cv_var'].reset_index(drop=True)[['metrics','train_baseline','train','test_baseline','test']].rename(columns={'test':'val'})
+
+        if show_result:print('cv end')
+
+    model = LGBMRegressor(**params,n_estimators=rounds,shuffle=True)
+    model.fit(df_train.drop(columns='bp_dl'),df_train['bp_dl'])
+
+    df_importances = pd.DataFrame(data={'feature':x_cols,'feature_importances':model.feature_importances_})
+    df_importances = df_importances.reset_index(drop=True).T
+    
+    df_metrics = metrics([model],df_train,df_test,X_train,y_train,X_test,y_test,x_cols,y_col)
+    df_metrics['metrics'] = df_metrics.index
+    df_metrics = df_metrics.reset_index(drop=True)
+
+    dic_metrics['full_dataset'] = df_metrics[['metrics','train_baseline','train','test_baseline','test']]
+    dic_metrics['importances'] = df_importances
+    
+    return model,dic_metrics
+
+def metrics_quantile(models_P05:list,models_P95:list,X_train,y_train,X_test,y_test,ensemble='mean'):
+    lst_metrics = []
+    df_metrics = pd.DataFrame(index=['coverage_rate'])
+    for cols in ['train_baseline','train','test_baseline','test']:
+        if cols == 'train_baseline':
+            P05 = np.quantile(y_train,[0.05])[0]
+            P95 = np.quantile(y_train,[0.95])[0]
+            coverage_rate = np.mean( (P05<=y_train) & (y_train<=P95))
+        elif cols == 'train':
+            if ensemble=='mean':
+                P95 = np.mean([model.predict(X_train) for model in models_P95],axis=0)
+                P05 = np.mean([model.predict(X_train) for model in models_P05],axis=0)
+            elif ensemble=='max':
+                P95 = np.max([model.predict(X_train) for model in models_P95],axis=0)
+                P05 = np.max([model.predict(X_train) for model in models_P05],axis=0)
+            coverage_rate = np.mean(((P05<=y_train) & (y_train<=P95)))
+
+        elif cols == 'test_baseline':
+            P95 = np.quantile(y_test,[0.95])[0]
+            P05 = np.quantile(y_test,[0.05])[0]
+            coverage_rate = np.mean((P05<=y_test) & (y_test<=P95))
+        else:
+            if ensemble=='mean':
+                P95 = np.mean([model.predict(X_test) for model in models_P95],axis=0)
+                P05 = np.mean([model.predict(X_test) for model in models_P05],axis=0)
+            elif ensemble=='max':
+                P95 = np.max([model.predict(X_test) for model in models_P95],axis=0)
+                P05 = np.max([model.predict(X_test) for model in models_P05],axis=0)
+
+            coverage_rate = np.mean(((P05<=y_test) & (y_test<=P95)))
+        
+        lst_metrics = [coverage_rate]
+        
+        df_metrics[cols] = lst_metrics
+
+    df_metrics.style.format("{:.6f}")
+    return df_metrics
+
+def train_quantile(params_P05,num_boost_round_P05,params_P95,num_boost_round_P95,df_train,df_test,x_cols,y_col,show_result = True,using_cv=True):
+    X_train,y_train,X_test,y_test = df_train[x_cols].to_numpy(),df_train[y_col].to_numpy(),df_test[x_cols].to_numpy(),df_test[y_col].to_numpy()
+    train_data = Dataset(X_train, label=y_train)
+
+    params = [params_P05,params_P95]
+    num_boost_rounds = [num_boost_round_P05,num_boost_round_P95]
+    for i in range(2):
+        cv_results = cv(
+                params[i],
+                train_data,
+                num_boost_round=num_boost_rounds[i],
+                nfold=5, 
+                stratified=False,
+                shuffle=True,
+                seed=42
+            )
+        
+        s1 = ''
+        df = pd.DataFrame(cv_results)
+        if 'mean' in df.columns[0]:
+            s1 = df.columns[0]
+            s2 = df.columns[1]
+        else:
+            s1 = df.columns[1]
+            s2 = df.columns[0]
+        
+        df = df.sort_values(s1).iloc[:5]
+        df = df.sort_values(s2).iloc[:1]
+        num_boost_rounds[i] = df.index.tolist()[0]
+
+        if i==0:
+            if show_result:print("P05 rounds",'=>',num_boost_rounds[i])
+        else:
+            if show_result:print("P95 rounds",'=>',num_boost_rounds[i])
+
+    dic_metrics = {}
+    if using_cv:
+        if show_result:print('cv start')
+        lst = []
+        kf = KFold(n_splits=5,shuffle=True,random_state=42)
+        for _, (train_index, val_index) in enumerate(kf.split(y_train)):
+
+            X_cv_train = X_train[train_index]
+            y_cv_train = y_train[train_index]
+            X_cv_val  = X_train[val_index]
+            y_cv_val  = y_train[val_index]
+
+            lgbm_P05 = LGBMRegressor(**params[0],n_estimators=num_boost_rounds[0],shuffle=True)
+            lgbm_P05.fit(X_cv_train, y_cv_train,eval_set=(X_cv_val,y_cv_val))
+
+            lgbm_P95 = LGBMRegressor(**params[1],n_estimators=num_boost_rounds[1],shuffle=True)
+            lgbm_P95.fit(X_cv_train, y_cv_train,eval_set=(X_cv_val,y_cv_val))
+
+            df_metrics = metrics_quantile([lgbm_P05],[lgbm_P95],X_train,y_train,X_test,y_test)
+
+            lst.append(df_metrics)
+        
+        df_metrics = pd.concat(lst)
+        lst = []
+
+        df_metrics = df_metrics.loc[['coverage_rate']].agg(['var','mean'])
+        df_metrics['metrics'] = 'coverage_rate'
+
+        dic_metrics['cv_mean'] = df_metrics.loc[['mean']]
+        dic_metrics['cv_mean'] = dic_metrics['cv_mean'].reset_index(drop=True)[['metrics','train_baseline','train','test_baseline','test']].rename(columns={'test':'val'})
+        
+        dic_metrics['cv_var'] = df_metrics.loc[['var']]
+        dic_metrics['cv_var'] = dic_metrics['cv_var'].reset_index(drop=True)[['metrics','train_baseline','train','test_baseline','test']].rename(columns={'test':'val'})
+
+        if show_result:print('cv end')
+
+    lgbm_P05 = LGBMRegressor(**params[0],n_estimators=num_boost_rounds[0],shuffle=True)
+    lgbm_P05.fit(X_train,y_train)
+
+    lgbm_P95 = LGBMRegressor(**params[1],n_estimators=num_boost_rounds[1],shuffle=True)
+    lgbm_P95.fit(X_train,y_train)
+
+    df_metrics = metrics_quantile([lgbm_P05],[lgbm_P95],X_train,y_train,X_test,y_test)
+
+    df_metrics['metrics'] = df_metrics.index
+    df_metrics = df_metrics.reset_index(drop=True)
+
+    dic_metrics['full_dataset'] = df_metrics[['metrics','train_baseline','train','test_baseline','test']]
+    
+    return lgbm_P05,lgbm_P95,dic_metrics
+
+def show_residual_plot(data,model,treget_col,monitor_col,kind='box'):
+    '''
+    kind = violin or scatt or box
+    default is box
+    '''
+    df = pd.DataFrame()
+    df['residual'] = data[treget_col] - model.predict(data.drop(columns=treget_col))
+    df[monitor_col] = data[monitor_col]
+    if kind =='scatt':
+        sns.scatterplot(x=df[monitor_col],y=df['residual'])
+    elif kind=='violin' :
+        sns.violinplot(df,x=monitor_col,y='residual')
+    else:
+        sns.boxplot(df,x=monitor_col,y='residual')
+    plt.show()
+
+def show_dou_residual_plot(data_train,data_test,model,treget_col,monitor_col,kind='box',figsize=(15,6)):
+    '''
+    kind = violin or scatt or box
+    default is box
+    '''
+    _, axes = plt.subplots(nrows=1, ncols=2,figsize=figsize)
+    df = pd.DataFrame()
+    df['residual'] = data_train[treget_col] - model.predict(data_train.drop(columns=treget_col))
+    df[monitor_col] = data_train[monitor_col]
+    if kind =='scatt':
+        sns.scatterplot(x=df[monitor_col],y=df['residual'],label='train',ax=axes[0])
+    elif kind=='violin' :
+        sns.violinplot(df,x=monitor_col,y='residual',label='train',ax=axes[0])
+    else:
+        sns.boxplot(df,x=monitor_col,y='residual',label='train',ax=axes[0])
+    
+    df = pd.DataFrame()
+    df['residual'] = data_test[treget_col] - model.predict(data_test.drop(columns=treget_col))
+    df[monitor_col] = data_test[monitor_col]
+    if kind =='scatt':
+        sns.scatterplot(x=df[monitor_col],y=df['residual'],label='test',ax=axes[1])
+    elif kind=='violin' :
+        sns.violinplot(df,x=monitor_col,y='residual',label='test',ax=axes[1])
+    else:
+        sns.boxplot(df,x=monitor_col,y='residual',label='test',ax=axes[1])
+    
+    plt.show()
+
+def compare_metrics(df_a,df_b):
+    '''
+    df_b - df_a
+    '''
+    df = df_b[['train_baseline','train','test_baseline','test']] - df_a[['train_baseline','train','test_baseline','test']]
+    df['metrics'] = df_b['metrics']
+    df = df[['metrics','train_baseline','train','test_baseline','test']]
+    df.style.format("{:.6f}")
+    
+    return df
